@@ -9,8 +9,13 @@ int main() {
         Field<"price", double>
     >::from_file("file.txt");
 
-    std::cout << err(csv_result.error()) << std::endl;
+    if (!csv_result) {
+        // TODO: this 'err' call is a bit nondescript
+        std::cerr << err(csv_result.error()) << std::endl;
+    }
 
+
+    auto csv = std::move(*csv_result);
     // the pipe dream:
     // auto csv_result = CsvIterator::from_file<
     //     CsvField<"symbol", std::string>,

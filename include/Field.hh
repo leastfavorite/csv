@@ -33,3 +33,6 @@ consteval std::size_t index_of() {
 
     return index;
 }
+
+template<FieldLike ...Fs>
+static constexpr std::array<std::string_view, sizeof...(Fs)> Annotations = { Fs::name... };
