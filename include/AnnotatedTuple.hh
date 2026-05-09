@@ -1,17 +1,19 @@
-#include "CsvManifest.hh"
+#pragma once
+
 #include "FixedString.hh"
+#include "Field.hh"
+
 #include <tuple>
 
-template <Field... Fs>
-class AnnotatedTuple : public std::tuple<typename Fs::value_type...> {
-    using tuple_type = std::tuple<typename Fs::value_type...>;
+template <FieldLike... Fs>
+class AnnotatedTuple : public std::tuple<typename Fs::type...> {
+    using Tuple = std::tuple<typename Fs::type...>;
+    // inherit tuple constructors
+    using Tuple::Tuple;
 
     public:
         template <FixedString Key>
-            requires (
-                (index_of<Key, Fs...>() < SIZE_T_MAX)
-            )
-        constexpr const typename std::tuple_element<index_of<Key, Fs...>, tuple_type> &get() {
-            return std::get<index_of<Key, Fs...>()>(*this);
+        constexpr const typename std::tuple_element<index_of<Key, Fs...>(), Tuple>::type &get() {
+            return std::get<index_of<Key, Fs...>(), typename Fs::type...>(*this);
         }
 };

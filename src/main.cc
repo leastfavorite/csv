@@ -1,20 +1,19 @@
+#include <cstddef>
 #include <iostream>
 
 #include "AnnotatedTuple.hh"
+#include "Field.hh"
 
 int main() {
+    auto g = AnnotatedTuple<
+        Field<"firstName", std::string>,
+        Field<"lastName", std::string>,
+        Field<"age", size_t>
+    >("Bill", "Nye", 50);
 
-    AnnotatedTuple<
-        CsvField<"symbol", std::string>,
-        CsvField<"venue", std::string>,
-        CsvField<"price", double>
-    > k;
+    // mapping is resolved at compile time!!
+    std::cout << g.get<"firstName">() << std::endl;
 
-    auto l = k.get<"symbol">();
-
-    for (const auto i : l) {
-        std::cout << i << std::endl;
-    }
 
     // the pipe dream:
     // auto csv_result = CsvIterator::from_file<
