@@ -1,3 +1,4 @@
+#include "CsvErrors.hh"
 #include "CsvReader.hh"
 #include <cstddef>
 #include <iostream>
@@ -11,9 +12,8 @@ int main() {
 
     if (!csv_result) {
         // TODO: this 'err' call is a bit nondescript
-        std::cerr << err(csv_result.error()) << std::endl;
+        std::cerr << err_msg(csv_result.error()) << std::endl;
     }
-
 
     auto csv = std::move(*csv_result);
     // the pipe dream:

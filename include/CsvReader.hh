@@ -1,76 +1,23 @@
 #pragma once
 
+#include "AnnotatedTuple.hh"
+#include "CsvErrors.hh"
 #include "Field.hh"
 #include <algorithm>
-#include <concepts>
 #include <expected>
 #include <fstream>
+#include <iterator>
 #include <optional>
-#include <ostream>
 #include <ranges>
-#include <sstream>
 #include <string>
+#include <tuple>
 #include <variant>
 
 // technically a misnomer--this could also occur if, say, we don't have permissions
-struct FileNotFound {
-    std::string filename;
-
-    std::string err() const {
-        return std::format("Could not open file: '{}'", filename);
-    }
-};
-
-struct EmptyFile {
-    std::string filename;
-    std::string err() const {
-        return std::format("Requested file was empty: '{}'", filename);
-    }
-};
-
-template <FieldLike ...Fs>
-struct MismatchedHeaders {
-    std::vector<std::string> found;
-
-    std::string err() const {
-        auto format_span = [](const auto &s) {
-            std::stringstream result;
-
-            result << "[";
-            for (size_t i = 0; i < s.size(); i++) {
-                if (i > 0) {
-                    result << ", ";
-                }
-                result << s[i];
-            }
-            result << "]";
-
-            return result.str();
-        };
-
-        static constexpr auto annotations = Annotations<Fs...>;
-
-        return std::format(
-                "Mismatch in header schema: expected {}, got {}",
-                format_span(annotations), format_span(found)
-        );
-    }
-};
-
-template <class E>
-concept ErrorLike =
-    requires(E const &e) {
-        { e.err() } -> std::convertible_to<std::string>;
-    };
-
-template <ErrorLike ...Es>
-std::string err(const std::variant<Es...> &v) {
-    return std::visit([](auto &e){ return e.err(); }, v);
-}
-
 template <FieldLike ...Fs>
 class CsvReader {
 public:
+    using Tuple = AnnotatedTuple<Fs...>;
     using FileError = std::variant<FileNotFound, EmptyFile, MismatchedHeaders<Fs...>>;
 
     static std::expected<CsvReader, FileError>from_file(const std::string &filename) {
@@ -79,7 +26,6 @@ public:
         if (ifs.fail()) {
             return std::unexpected(FileNotFound { filename });
         }
-
 
         // we don't fail on an empty file here--that's treated as a special case
         // of MismatchedHeaders
@@ -110,7 +56,6 @@ public:
             return mismatched_headers();
         }
 
-
         // O(n^2) !!! we could speed this up with a hash table or something
         // but i expect key arrays to be tiny (<100 entries)
         auto lookup = std::array<size_t, sizeof...(Fs)>();
@@ -132,6 +77,7 @@ public:
 
         return CsvReader(std::move(lookup), std::move(ifs));
     }
+
 private:
     CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_):
         lookup(std::move(lookup_)), stream(std::move(stream_)) {}
