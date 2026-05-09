@@ -10,7 +10,7 @@ struct Field {
     static constexpr auto name = Name.value;
 };
 
-// FIXME: right now this doesnt allow arbitrary char types
+// TODO: allow arbitrary char types
 template<class F>
 concept FieldLike =
     requires(F const f) {
