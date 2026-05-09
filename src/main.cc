@@ -1,6 +1,9 @@
-
 #include <iostream>
+
+#include "FixedString.hh"
+
 int main() {
+
     std::cout << "hi" << std::endl;
     // the pipe dream:
     // auto csv_result = CsvIterator::from_file<
