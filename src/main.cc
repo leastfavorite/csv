@@ -21,14 +21,14 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    for (const auto &entry_result : *csv_result) {
+    for (const auto &entry_result : **csv_result) {
         if (!entry_result) {
             std::cerr << "\n" << err_msg(entry_result) << "\n" << std::endl;
             continue;
         }
 
         // entry derives std::tuple<std::string, std::string, double>...
-        const auto entry = *entry_result;
+        const auto &entry = *entry_result;
 
         // ...with additional compile-time .get() to retrieve values by name
         std::cout << std::format("symbol: '{}', venue: '{}', price * 2: {}",

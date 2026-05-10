@@ -1,7 +1,8 @@
 # csv
-A C++23 comma-separated value parser.
+A C++23 comma-separated value parser. Note that this is *extremely* early in
+development. Note also that I didn't know how to do any of this on Friday.
 
-## Basic Usage
+## Usage
 
 To open a file, the static method `CsvReader<>::from_file(const std::string &filename)` is provided.
 ```cpp

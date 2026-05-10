@@ -11,8 +11,7 @@
 template <class E>
 concept ErrorLike =
     requires(E const &e) {
-        // TODO: this is perhaps a too constrictive?
-        // in practice, seems we just want existence of operator<<
+        // TODO: this is perhaps too constrictive?
         { e.err() } -> std::convertible_to<std::string>;
     };
 
@@ -36,19 +35,18 @@ std::string err_msg(const std::expected<T, E> &r) {
     return err_msg(r.error());
 }
 
+// TODO: Streamline error types
+// I like the implementation of CsvStreamError--a struct with general
+// information, and a std::variant with the details of the specific error
+// message. I think FileError (defined in CsvReader) deserves the same
+// treatment.
+
 // technically a misnomer--this could also occur if, say, we don't have permissions
 struct FileNotFound {
     std::string filename;
 
     std::string err() const {
         return std::format("Could not open file: '{}'", filename);
-    }
-};
-
-struct EmptyFile {
-    std::string filename;
-    std::string err() const {
-        return std::format("Requested file was empty: '{}'", filename);
     }
 };
 

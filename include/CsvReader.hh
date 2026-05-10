@@ -7,6 +7,7 @@
 #include <expected>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -14,24 +15,26 @@
 #include <utility>
 #include <variant>
 
-// TODO: this class is header-only on acciden
-// TODO: enforce in concept: Tuple must be trivially default initializable (see Iterator:operator*)
+// TODO: enforce with concept:
+// Tuple must be trivially default initializable (see Iterator:operator*)
 template <FieldLike ...Fs>
-class CsvReader {
+class CsvReader : public std::enable_shared_from_this<CsvReader<Fs...>> {
 public:
     using Tuple = AnnotatedTuple<Fs...>;
-    using FileError = std::variant<FileNotFound, EmptyFile, MismatchedHeaders<Fs...>>;
+    using FileError = std::variant<FileNotFound, MismatchedHeaders<Fs...>>;
 
-    // TODO: Iterator here just takes a ptr to CsvReader, which, IMO, is VERY bad!
-    // i'm extremely eager to hear what alternatives are available.
+    // in order to avoid a raw pointer in this iterator, CsvReader uses
+    // shared_from_this to give all child iterators a shared_ptr to itself.
+    // in practice, this feels clunky to me--we have to double-dereference out
+    // of from_file(), for instance--but it's certainly better than the
+    // alternative.
     //
-    // i think there's promise in using std::enable_shared_from_this to
-    // grab a shared pointer for use in the iterator.
-    // i also think this might be implementable as a range adapter?
-    // much to think about
+    // eager to talk to people smarter than me about how this iterator
+    // could perhaps be a range adaptor? kernighan's law precluded me
+    // from that implementation at present.
     class Iterator {
     public:
-        Iterator (CsvReader<Fs...> *ptr_): ptr(ptr_) {}
+        Iterator (std::shared_ptr<CsvReader<Fs...>> ptr_): ptr(ptr_) {}
 
         using value_type = std::expected<Tuple, CsvStreamError<Fs...>>;
         using difference_type = std::size_t;
@@ -51,7 +54,7 @@ public:
             return ( ptr->stream.eof() );
         }
 
-        // TODO - break these std::unexpected calls into a lambda.
+        // TODO: break these std::unexpected calls into a lambda.
         // also, since we're constructing this type in the iterator, it
         // surely makes sense to return an rvalue reference, right?
         value_type operator*() {
@@ -112,18 +115,14 @@ public:
         }
 
     private:
-        CsvReader<Fs...> *ptr;
+        std::shared_ptr<CsvReader<Fs...>> ptr;
     };
-
-    // i think the prickliest part of this whole implementation for me has been
-    // this iterator--a weird combination of old and new C++. eager to talk
-    // to someone smarter than me about better options for impl here.
 
     Iterator begin() {
         if (lineno < 2) {
             next();
         }
-        return Iterator { this };
+        return Iterator { this->shared_from_this() };
     };
 
     std::default_sentinel_t end() { return {}; }
@@ -136,7 +135,7 @@ public:
         }
     }
 
-    static std::expected<CsvReader, FileError> from_file(const std::string &filename) {
+    static std::expected<std::shared_ptr<CsvReader>, FileError> from_file(const std::string &filename) {
         auto ifs = std::ifstream(filename);
 
         if (ifs.fail()) {
@@ -162,9 +161,9 @@ public:
         // into its component cases (HeaderSizeMismatch, MissingHeader, ExtraHeader).
         //
         // that would bring about a reasonable API for allowing headers in the
-        // CSV that don't exist in Fs, similar to Zod's looseObject:
+        // CSV that don't correspond to Fs, similar to Zod's looseObject:
         // https://zod.dev/api#zlooseobject
-        const auto mismatched_headers = [&]() -> std::expected<CsvReader, FileError> {
+        const auto mismatched_headers = [&]() -> std::expected<std::shared_ptr<CsvReader>, FileError> {
             return std::unexpected(MismatchedHeaders<Fs...>{ std::move(tokens) });
         };
 
@@ -193,23 +192,26 @@ public:
             lookup[i] = *idx;
         }
 
-        return CsvReader(
+        return std::make_shared<CsvReader<Fs...>>(
             std::move(lookup),
             std::move(ifs),
-            filename
+            filename,
+            Private()
         );
-    }
-
-    auto iter() {
     }
 
     template <FieldLike ...Fss>
     friend bool operator==( CsvReader<Fss...> const & lhs, std::default_sentinel_t const & );
 
+    // public constructor only accessible from within this class,
+    // see https://en.cppreference.com/cpp/memory/enable_shared_from_this
 private:
-    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_, const std::string &filename_):
+    struct Private { explicit Private() = default; };
+public:
+    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_, const std::string &filename_, Private):
         lookup(std::move(lookup_)), stream(std::move(stream_)), filename(filename_) {}
 
+private:
     // we support shuffled keys. lookup[k] tells us which index in the csv
     // has a header that matches Fs[k]
     std::array<size_t, sizeof...(Fs)> lookup;
