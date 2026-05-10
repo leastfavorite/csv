@@ -9,16 +9,89 @@
 #include <iterator>
 #include <optional>
 #include <ranges>
+#include <sstream>
 #include <string>
-#include <tuple>
+#include <utility>
 #include <variant>
 
 // technically a misnomer--this could also occur if, say, we don't have permissions
+// TODO: enforce in concept--Tuple must be trivially default initializable, see operator*
 template <FieldLike ...Fs>
 class CsvReader {
 public:
     using Tuple = AnnotatedTuple<Fs...>;
     using FileError = std::variant<FileNotFound, EmptyFile, MismatchedHeaders<Fs...>>;
+
+
+    // i think the prickliest part of this whole implementation for me has been
+    // this iterator--a weird combination of old and new C++. eager to talk
+    // to someone smarter than me about better options for impl here.
+    using value_type = std::expected<Tuple, CsvStreamError<Fs...>>;
+    using difference_type = std::size_t;
+
+    CsvReader<Fs...> &&begin() {
+        if (lineno == 1) {
+            (*this)++;
+        }
+        // ideally else return an error, right?
+        // but how would i get a result out of here?
+        return std::move(*this);
+    }
+
+    std::default_sentinel_t end() { return {}; }
+
+    // postfix increment is undefined
+    CsvReader<Fs...> &&operator++() {
+        if (stream) {
+            getline(stream, line);
+            lineno++;
+        }
+        return std::move(*this);
+    }
+
+    value_type operator*() {
+        auto tokens = std::ranges::views::split(line, ",")
+            | std::views::transform([](auto &&s) -> std::string_view { return s.data(); })
+            | std::ranges::to<std::vector>();
+
+        if (tokens.size() != sizeof...(Fs)) {
+            return std::unexpected(CsvStreamError<Fs...> {
+                .line = line,
+                .lineno = lineno,
+                .error = LengthMismatch { tokens.size() }
+            });
+        }
+
+        Tuple result = {};
+        std::vector<std::pair<size_t, std::string>> failed_conversions {};
+
+        // some rather ugly syntax for compile-time loop unrolling--
+        // 'template for' sure will be nice in C++26 :)
+        //
+        // https://stackoverflow.com/questions/71586051/enumerating-a-pack
+        // https://youtu.be/15etE6WcvBY?t=2670
+        auto apply = [&]<size_t Idx>() {
+            const auto &s = tokens[lookup[Idx]];
+            std::stringstream ss = s;
+            ss >> std::get<Idx>(result);
+
+            bool success = ss.eof() && !ss.fail();
+            if (!success) {
+                failed_conversions.emplace_back(Idx, s);
+            }
+            return success;
+        };
+
+        auto apply_all = []<size_t ...Idxs>(decltype(apply) &f, std::index_sequence<Idxs...>) {
+            return (f.template operator()<Idxs>() && ...);
+        };
+        // WARNING - Tuple result may be partially constructed here
+        if (!apply_all(std::make_index_sequence<sizeof...(Fs)> {})) {
+            return std::unexpected(ConversionError<Fs...> { failed_conversions });
+        }
+
+        return result;
+    }
 
     static std::expected<CsvReader, FileError>from_file(const std::string &filename) {
         auto ifs = std::ifstream(filename);
@@ -31,7 +104,6 @@ public:
         // of MismatchedHeaders
         std::string header;
         std::getline(ifs, header);
-
 
         // we own the strings here specifically for error-type handling.
         auto tokens = std::ranges::views::split(header, ",")
@@ -75,12 +147,19 @@ public:
             lookup[i] = *idx;
         }
 
-        return CsvReader(std::move(lookup), std::move(ifs));
+        return CsvReader(
+            std::move(lookup),
+            std::move(ifs),
+            filename
+        );
+    }
+
+    auto iter() {
     }
 
 private:
-    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_):
-        lookup(std::move(lookup_)), stream(std::move(stream_)) {}
+    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_, const std::string &line_):
+        lookup(std::move(lookup_)), stream(std::move(stream_)), line(line_) {}
 
     // we support shuffled keys. lookup[k] tells us which index in the csv
     // has a header that matches Fs[k]
@@ -89,4 +168,9 @@ private:
     // note: likely worthwhile to switch to a templated std::istream to allow
     // reading from other input stream types.
     std::ifstream stream;
+    std::string line;
+
+    // for errors
+    std::string filename;
+    size_t lineno = 1;
 };
