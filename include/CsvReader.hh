@@ -14,16 +14,21 @@
 #include <utility>
 #include <variant>
 
-// technically a misnomer--this could also occur if, say, we don't have permissions
-// TODO: enforce in concept--Tuple must be trivially default initializable, see operator*
+// TODO: this class is header-only on acciden
+// TODO: enforce in concept: Tuple must be trivially default initializable (see Iterator:operator*)
 template <FieldLike ...Fs>
 class CsvReader {
 public:
     using Tuple = AnnotatedTuple<Fs...>;
     using FileError = std::variant<FileNotFound, EmptyFile, MismatchedHeaders<Fs...>>;
 
-    // so, gut feeling is that of all the wrong things i'm doing, this here
-    // is probably the wrong-est.
+    // TODO: Iterator here just takes a ptr to CsvReader, which, IMO, is VERY bad!
+    // i'm extremely eager to hear what alternatives are available.
+    //
+    // i think there's promise in using std::enable_shared_from_this to
+    // grab a shared pointer for use in the iterator.
+    // i also think this might be implementable as a range adapter?
+    // much to think about
     class Iterator {
     public:
         Iterator (CsvReader<Fs...> *ptr_): ptr(ptr_) {}
@@ -46,6 +51,9 @@ public:
             return ( ptr->stream.eof() );
         }
 
+        // TODO - break these std::unexpected calls into a lambda.
+        // also, since we're constructing this type in the iterator, it
+        // surely makes sense to return an rvalue reference, right?
         value_type operator*() {
             auto tokens = std::string_view(ptr->line)
                 | std::views::split(',')
