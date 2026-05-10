@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <expected>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -22,78 +23,107 @@ public:
     using Tuple = AnnotatedTuple<Fs...>;
     using FileError = std::variant<FileNotFound, EmptyFile, MismatchedHeaders<Fs...>>;
 
+    // so, gut feeling is that of all the wrong things i'm doing, this here
+    // is probably the wrong-est.
+    class Iterator {
+    public:
+        Iterator (CsvReader<Fs...> *ptr_): ptr(ptr_) {}
+
+        using value_type = std::expected<Tuple, CsvStreamError<Fs...>>;
+        using difference_type = std::size_t;
+
+        Iterator &operator++() {
+            ptr->next();
+            return *this;
+        }
+
+        Iterator &operator++(int) {
+            auto result = *this;
+            ptr->next();
+            return result;
+        }
+
+        bool operator==( std::default_sentinel_t const & ) {
+            return ( ptr->stream.eof() );
+        }
+
+        value_type operator*() {
+            auto tokens = std::string_view(ptr->line)
+                | std::views::split(',')
+                | std::views::transform([](auto &&s){ return std::string(s.begin(), s.end()); })
+                | std::ranges::to<std::vector>();
+
+            if (tokens.size() != sizeof...(Fs)) {
+                return std::unexpected(CsvStreamError<Fs...> {
+                    .line = ptr->line,
+                    .lineno = ptr->lineno,
+                    .filename = ptr->filename,
+                    .error = LengthMismatch<sizeof...(Fs)> { tokens.size() }
+                });
+            }
+
+            Tuple result = {};
+            std::vector<std::pair<size_t, std::string>> failed_conversions {};
+
+            // some rather ugly syntax for compile-time loop unrolling--
+            // 'template for' sure will be nice in C++26 :)
+            //
+            // https://stackoverflow.com/questions/71586051/enumerating-a-pack
+            // https://youtu.be/15etE6WcvBY?t=2670
+            auto apply = [&]<size_t Idx>() {
+                const std::string &s = tokens[ptr->lookup[Idx]];
+                std::istringstream ss(s);
+                ss >> std::get<Idx>(result);
+
+                bool success = ss.eof() && !ss.fail();
+                if (!success) {
+                    failed_conversions.emplace_back(Idx, s);
+                }
+                return success;
+            };
+
+            auto apply_all = []<size_t ...Idxs>(decltype(apply) &f, std::index_sequence<Idxs...>) {
+                return (f.template operator()<Idxs>() && ...);
+            };
+            if (!apply_all(apply, std::make_index_sequence<sizeof...(Fs)> {})) {
+                // WARNING - Tuple result is partially constructed here
+                return std::unexpected(CsvStreamError<Fs...> {
+                    .line = ptr->line,
+                    .lineno = ptr->lineno,
+                    .filename = ptr->filename,
+                    .error = ConversionError<Fs...> { failed_conversions }
+                });
+            }
+
+            return result;
+        }
+
+    private:
+        CsvReader<Fs...> *ptr;
+    };
 
     // i think the prickliest part of this whole implementation for me has been
     // this iterator--a weird combination of old and new C++. eager to talk
     // to someone smarter than me about better options for impl here.
-    using value_type = std::expected<Tuple, CsvStreamError<Fs...>>;
-    using difference_type = std::size_t;
 
-    CsvReader<Fs...> &&begin() {
-        if (lineno == 1) {
-            (*this)++;
+    Iterator begin() {
+        if (lineno < 2) {
+            next();
         }
-        // ideally else return an error, right?
-        // but how would i get a result out of here?
-        return std::move(*this);
-    }
+        return Iterator { this };
+    };
 
     std::default_sentinel_t end() { return {}; }
 
-    // postfix increment is undefined
-    CsvReader<Fs...> &&operator++() {
+
+    void next() {
         if (stream) {
             getline(stream, line);
             lineno++;
         }
-        return std::move(*this);
     }
 
-    value_type operator*() {
-        auto tokens = std::ranges::views::split(line, ",")
-            | std::views::transform([](auto &&s) -> std::string_view { return s.data(); })
-            | std::ranges::to<std::vector>();
-
-        if (tokens.size() != sizeof...(Fs)) {
-            return std::unexpected(CsvStreamError<Fs...> {
-                .line = line,
-                .lineno = lineno,
-                .error = LengthMismatch { tokens.size() }
-            });
-        }
-
-        Tuple result = {};
-        std::vector<std::pair<size_t, std::string>> failed_conversions {};
-
-        // some rather ugly syntax for compile-time loop unrolling--
-        // 'template for' sure will be nice in C++26 :)
-        //
-        // https://stackoverflow.com/questions/71586051/enumerating-a-pack
-        // https://youtu.be/15etE6WcvBY?t=2670
-        auto apply = [&]<size_t Idx>() {
-            const auto &s = tokens[lookup[Idx]];
-            std::stringstream ss = s;
-            ss >> std::get<Idx>(result);
-
-            bool success = ss.eof() && !ss.fail();
-            if (!success) {
-                failed_conversions.emplace_back(Idx, s);
-            }
-            return success;
-        };
-
-        auto apply_all = []<size_t ...Idxs>(decltype(apply) &f, std::index_sequence<Idxs...>) {
-            return (f.template operator()<Idxs>() && ...);
-        };
-        // WARNING - Tuple result may be partially constructed here
-        if (!apply_all(std::make_index_sequence<sizeof...(Fs)> {})) {
-            return std::unexpected(ConversionError<Fs...> { failed_conversions });
-        }
-
-        return result;
-    }
-
-    static std::expected<CsvReader, FileError>from_file(const std::string &filename) {
+    static std::expected<CsvReader, FileError> from_file(const std::string &filename) {
         auto ifs = std::ifstream(filename);
 
         if (ifs.fail()) {
@@ -104,11 +134,13 @@ public:
         // of MismatchedHeaders
         std::string header;
         std::getline(ifs, header);
-
-        // we own the strings here specifically for error-type handling.
-        auto tokens = std::ranges::views::split(header, ",")
-            | std::views::transform([](auto &&s) -> std::string { return std::move(s.data()); })
+        auto tokens = std::string_view(header)
+            | std::views::split(',')
+            | std::views::transform([](auto &&s){ return std::string(s.begin(), s.end()); })
             | std::ranges::to<std::vector>();
+
+        // we copy the strings here specifically for error-type handling.
+        std::cout << tokens.size() << std::endl;
 
         // thunk.
         //
@@ -157,9 +189,12 @@ public:
     auto iter() {
     }
 
+    template <FieldLike ...Fss>
+    friend bool operator==( CsvReader<Fss...> const & lhs, std::default_sentinel_t const & );
+
 private:
-    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_, const std::string &line_):
-        lookup(std::move(lookup_)), stream(std::move(stream_)), line(line_) {}
+    CsvReader(std::array<size_t, sizeof...(Fs)> &&lookup_, std::ifstream &&stream_, const std::string &filename_):
+        lookup(std::move(lookup_)), stream(std::move(stream_)), filename(filename_) {}
 
     // we support shuffled keys. lookup[k] tells us which index in the csv
     // has a header that matches Fs[k]
@@ -174,3 +209,8 @@ private:
     std::string filename;
     size_t lineno = 1;
 };
+
+template <FieldLike ...Fs>
+bool operator==( CsvReader<Fs...> const & lhs, std::default_sentinel_t const & ) {
+    return lhs.stream == nullptr;
+}

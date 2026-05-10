@@ -85,7 +85,7 @@ template <size_t Expected>
 struct LengthMismatch {
     size_t found;
     std::string err() const {
-        return "";
+        return std::format("  Expected {} fields, got {}", Expected, found);
     }
 };
 

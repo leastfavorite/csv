@@ -19,7 +19,12 @@ public:
 
     // TODO: this one's got a lot of cousins
     template <FixedString Key>
-    constexpr const typename std::tuple_element<index_of<Key, Fs...>(), Tuple>::type &get() {
+    constexpr const typename std::tuple_element<index_of<Key, Fs...>(), Tuple>::type &get() const {
+        return std::get<index_of<Key, Fs...>(), typename Fs::type...>(*this);
+    }
+
+    template <FixedString Key>
+    constexpr typename std::tuple_element<index_of<Key, Fs...>(), Tuple>::type &get() {
         return std::get<index_of<Key, Fs...>(), typename Fs::type...>(*this);
     }
 };

@@ -3,26 +3,31 @@
 #include <cstddef>
 #include <iostream>
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    if (argc < 2) {
+        std::cerr << "Usage: csv <file.csv>" << std::endl;
+        return -1;
+    }
+
     auto csv_result = CsvReader<
         Field<"symbol", std::string>,
         Field<"venue", std::string>,
         Field<"price", double>
-    >::from_file("file.txt");
+    >::from_file(argv[1]);
 
     if (!csv_result) {
-        // TODO: this 'err' call is a bit nondescript
-        std::cerr << err_msg(csv_result.error()) << std::endl;
+        std::cerr << err_msg(csv_result) << std::endl;
+        return -1;
     }
 
-    auto csv = std::move(*csv_result);
-    // the pipe dream:
-    // auto csv_result = CsvIterator::from_file<
-    //     CsvField<"symbol", std::string>,
-    //     CsvField<"venue", std::string>,
-    //     CsvField<"price", double>
-    // >("file.txt");
-    // auto entry = csv.next()
-    // entry.get<"symbol">() -> std::string
-    // entry.get<"price">() -> double
+    for (const auto &o : *csv_result) {
+        if (!o) {
+            std::cerr << err_msg(o.error()) << std::endl;
+            continue;
+        }
+
+        const auto result = *o;
+        std::cout << result.get<"price">() + 1 << std::endl;
+    }
 }
