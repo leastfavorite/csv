@@ -97,10 +97,13 @@ struct ConversionError {
 
         std::stringstream ss;
 
-        for (const auto &[idx, found] : failures) {
-            // TODO: i'd love to return type information here, but i'm too
-            // lazy to pull in boost just yet
-            ss << std::format("  Could not convert field '{}': got {}\n", annotations[idx], found);
+        for (size_t i = 0; i < failures.size(); i++) {
+            const auto &[idx, found] = failures[i];
+
+            ss << std::format("  Could not convert field '{}': got '{}'", annotations[idx], found);
+            if (i < failures.size() - 1) {
+                ss << "\n";
+            }
         }
 
         return ss.str();
@@ -117,7 +120,7 @@ struct CsvStreamError {
 
     std::string err() const {
         return std::format(
-            "CsvStreamError in '{}' (line {}):\n  {}\n{}",
+            "CsvStreamError in '{}' (line {}) while parsing '{}':\n{}",
             filename, lineno, line, err_msg(error)
         );
     }

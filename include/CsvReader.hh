@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <expected>
 #include <fstream>
-#include <iostream>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -50,7 +49,6 @@ public:
         value_type operator*() {
             auto tokens = std::string_view(ptr->line)
                 | std::views::split(',')
-                | std::views::transform([](auto &&s){ return std::string(s.begin(), s.end()); })
                 | std::ranges::to<std::vector>();
 
             if (tokens.size() != sizeof...(Fs)) {
@@ -71,13 +69,20 @@ public:
             // https://stackoverflow.com/questions/71586051/enumerating-a-pack
             // https://youtu.be/15etE6WcvBY?t=2670
             auto apply = [&]<size_t Idx>() {
-                const std::string &s = tokens[ptr->lookup[Idx]];
-                std::istringstream ss(s);
+                const auto &s = tokens[ptr->lookup[Idx]];
+
+                // TODO: this istringstream necessitates a copy.
+                // it's likely worthwhile to create some sort of partially
+                // specialized converter function that can deal with both
+                // string types (views and std::strings) as well as
+                // integral and float types (using std::from_chars).
+                std::istringstream ss(std::string(s.begin(), s.end()));
                 ss >> std::get<Idx>(result);
 
                 bool success = ss.eof() && !ss.fail();
                 if (!success) {
-                    failed_conversions.emplace_back(Idx, s);
+                    failed_conversions.emplace_back(
+                            Idx, std::string(s.begin(), s.end()));
                 }
                 return success;
             };
@@ -134,13 +139,14 @@ public:
         // of MismatchedHeaders
         std::string header;
         std::getline(ifs, header);
+
+        // we copy the strings here specifically for error-type handling.
+        // it's cheap, we only do it once
         auto tokens = std::string_view(header)
             | std::views::split(',')
             | std::views::transform([](auto &&s){ return std::string(s.begin(), s.end()); })
             | std::ranges::to<std::vector>();
 
-        // we copy the strings here specifically for error-type handling.
-        std::cout << tokens.size() << std::endl;
 
         // thunk.
         //
@@ -200,8 +206,8 @@ private:
     // has a header that matches Fs[k]
     std::array<size_t, sizeof...(Fs)> lookup;
 
-    // note: likely worthwhile to switch to a templated std::istream to allow
-    // reading from other input stream types.
+    // TODO: switch to a templated istream.
+    // that way we can support csv from strings
     std::ifstream stream;
     std::string line;
 

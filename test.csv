@@ -1,4 +1,9 @@
 symbol,venue,price
 AAAAAAAA,ven1,0.6
 BBBBBBBB,ven1,0.8
+CCCCCCCC,ven1,banana
 AAAAAAAA,ven2,1.0
+TooShort,ven2
+AAAAAAAA,ven1,1.1
+VeryLong,ven2,1.3,apple
+AAAAAAAA,ven3,1.5
