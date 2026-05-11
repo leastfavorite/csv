@@ -6,7 +6,7 @@
 #include <tuple>
 
 template <typename CharT, is_field<CharT> ...Fields>
-class NamedTuple : std::tuple<typename Fields::value_type...> {
+class NamedTuple : public std::tuple<typename Fields::value_type...> {
 public:
     using atom_type = CharT;
     // no way to DRY this, i guess...
@@ -21,7 +21,9 @@ private:
         std::size_t index = 0;
 
         bool found = (
-            (Fields::name == Key.view() ? true : (++index, false))
+            (std::basic_string_view<CharT>(Key.value) ==
+             std::basic_string_view<CharT>(Fields::name)
+            ? true : (++index, false))
         || ...);
 
         if (!found) {

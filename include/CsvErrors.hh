@@ -36,10 +36,10 @@ template <typename CharT, FixedString Ctx, typename V, typename ...Fs>
 struct CsvError {
     using atom_type = decltype(Ctx)::atom_type;
 
-    std::string_view filename;
-    std::basic_string<atom_type> line;
-    std::size_t lineno;
-    V error;
+    const std::string_view filename;
+    const std::basic_string<atom_type> line;
+    const std::size_t lineno;
+    const V error;
 
     std::basic_string<atom_type> message() const {
         const auto err = std::visit([](const auto &e) {
@@ -67,7 +67,7 @@ struct FileNotFound {
 template <typename CharT, is_field<CharT> ...Fs>
 struct UnknownHeader {
     static constexpr auto Name = "Unexpected header entry";
-    std::vector<std::basic_string_view<CharT>> failures;
+    std::vector<std::basic_string<CharT>> failures;
 
     std::basic_string<CharT> err() const {
         auto format_span = [](const auto &s) {
