@@ -19,4 +19,4 @@ concept is_field = requires {
 
 template<typename CharT, is_field<CharT>... Fs>
 static constexpr std::array<std::basic_string_view<CharT>, sizeof...(Fs)> FieldAnnotations
-    = { Fs::name... };
+    = { ((Fs::name), ...) };
