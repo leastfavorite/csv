@@ -1,38 +1,26 @@
 #pragma once
 
 #include "FixedString.hh"
-#include <concepts>
-#include <string_view>
+#include <utility>
 
-template<FixedString Name, typename T>
+template <FixedString Name, typename Type>
 struct Field {
-    using type = T;
-    static constexpr auto name = Name.value;
+    using value_type = Type;
+    using atom_type = typename decltype(Name)::atom_type;
+
+    static constexpr std::basic_string_view<atom_type> name = Name.view();
 };
 
-// TODO: allow arbitrary char types
-template<class F>
-concept FieldLike =
-    requires(F const f) {
-        { f.name } -> std::convertible_to<std::string_view>;
-        typename F::type;
-    };
+// wild that this is the easiest way to do this. it's very cool, though
+template <typename F>
+concept is_field = requires {
+    { []<auto Name, typename Type>(Field<Name, Type>){}(std::declval<F>()) };
+};
 
-template <FixedString Key, FieldLike... Fs>
-consteval std::size_t index_of() {
-    std::size_t index = 0;
+template <typename F, typename CharT>
+concept is_typed_field =
+    is_field<F> && std::same_as<typename F::atom_type, CharT>;
 
-    bool found = (
-        (std::string_view(Fs::name) == std::string_view(Key.value)
-        ? true : (++index, false))
-    || ...);
-
-    if (!found) {
-        return SIZE_T_MAX;
-    }
-
-    return index;
-}
-
-template<FieldLike ...Fs>
-static constexpr std::array<std::string_view, sizeof...(Fs)> Annotations = { Fs::name... };
+template<typename CharT, is_typed_field<CharT>... Fs>
+static constexpr std::array<std::basic_string_view<CharT>, sizeof...(Fs)> Annotations
+    = { Fs::name... };
