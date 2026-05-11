@@ -3,6 +3,7 @@
 #include "Field.hh"
 #include <expected>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -33,8 +34,9 @@ private:
 public:
     class Iterator {
     public:
+        using tuple_type = NamedTuple<CharT, Fs...>;
         using value_type = std::expected<
-            NamedTuple<CharT, Fs...>, DereferenceError<CharT, Fs...>>;
+            tuple_type, DereferenceError<CharT, Fs...>>;
         using difference_type = std::size_t;
 
         Iterator(csv_ptr &&ptr_): ptr(std::move(ptr_)) {}
@@ -53,7 +55,73 @@ public:
         }
 
         // TODO
-        value_type operator*();
+        value_type operator*() {
+            auto tokens = std::string_view(ptr->line)
+                | std::views::split(',')
+                | std::ranges::to<std::vector>();
+
+            if (tokens.size() != sizeof...(Fs)) {
+                return std::unexpected(
+                    DereferenceError<CharT, Fs...> {
+                        .filename = ptr->filename,
+                        .line = ptr->line,
+                        .lineno = ptr->lineno,
+                        .error = LengthMismatch<CharT, Fs...> {
+                            tokens.size()
+                        }
+                    }
+                );
+            }
+
+            tuple_type result = {};
+
+            std::vector<std::pair<size_t, std::basic_string_view<CharT>>>
+                failed_conversions;
+
+            // some rather ugly syntax for compile-time loop unrolling--
+            // 'template for' sure will be nice in C++26 :)
+            //
+            // https://stackoverflow.com/questions/71586051/enumerating-a-pack
+            // https://youtu.be/15etE6WcvBY?t=2670
+            auto apply = [&]<size_t Idx>() {
+                const auto &s = tokens[ptr->lookup[Idx]];
+
+                // TODO: this istringstream necessitates a copy.
+                // it's likely worthwhile to create some sort of partially
+                // specialized converter function that can deal with both
+                // string types (views and std::strings) as well as
+                // integral and float types (using std::from_chars).
+                std::basic_istringstream<CharT> ss(
+                        std::basic_string<CharT>(s.begin(), s.end()));
+                ss >> std::get<Idx>(result);
+
+                bool success = ss.eof() && !ss.fail();
+                if (!success) {
+                    failed_conversions.emplace_back(
+                            Idx, std::basic_string_view<CharT>(s));
+                }
+                return success;
+            };
+
+            auto apply_all = []<size_t ...Idxs>(decltype(apply) &f, std::index_sequence<Idxs...>) {
+                return (f.template operator()<Idxs>() && ...);
+            };
+
+            if (!apply_all(apply, std::make_index_sequence<sizeof...(Fs)> {})) {
+                return std::unexpected(
+                    DereferenceError<CharT, Fs...> {
+                        .filename = ptr->filename,
+                        .line = ptr->line,
+                        .lineno = ptr->lineno,
+                        .error = CouldNotConvert<CharT, Fs...> {
+                            failed_conversions
+                        }
+                    }
+                );
+            }
+
+            return result;
+        }
     private:
         csv_ptr ptr;
     };
@@ -100,13 +168,13 @@ public:
         // we don't check for length matching. this removes an early-out case
         // but gives us better errors
 
-        static constexpr
-            std::array<std::string_view, sizeof...(Fs)> annotations =
-                FieldAnnotations<CharT, Fs...>;
+        static constexpr auto annotations = FieldAnnotations<CharT, Fs...>;
 
-        std::vector<std::basic_string_view<CharT>> unknown_entries;
+        std::vector<std::basic_string<CharT>> unknown_entries;
 
         std::array<bool, sizeof ...(Fs)> found_annotation;
+        found_annotation.fill(false);
+
         std::array<std::size_t, sizeof...(Fs)> lookup;
 
         for (size_t i = 0; i < entries.size(); i++) {
@@ -136,7 +204,7 @@ public:
                 FromFileError<CharT, Fs...>{
                     .filename = filename,
                     .line = "",
-                    .lineno = 0,
+                    .lineno = 1,
                     .error = UnknownHeader<CharT, Fs...> { unknown_entries }
                 }
             );
@@ -148,7 +216,7 @@ public:
                     FromFileError<CharT, Fs...>{
                         .filename = filename,
                         .line = "",
-                        .lineno = 0,
+                        .lineno = 1,
                         .error = HeaderNotFound<CharT, Fs...>
                             { found_annotation }
                     }
