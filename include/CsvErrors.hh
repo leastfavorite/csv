@@ -1,61 +1,56 @@
 #pragma once
 
 #include "Field.hh"
-#include <concepts>
-#include <expected>
 #include <format>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <variant>
 
-template <class E>
-concept ErrorLike =
-    requires(E const &e) {
-        // TODO: this is perhaps too constrictive?
-        { e.err() } -> std::convertible_to<std::string>;
-    };
+template <typename CharT, FixedString Ctx, typename V, typename ...Fs>
+struct CsvError {
+    using atom_type = decltype(Ctx)::atom_type;
 
-template <ErrorLike ...Es>
-std::string err_msg(const std::variant<Es...> &v) {
-    return std::visit([](auto &e){ return e.err(); }, v);
-}
+    std::string_view filename;
+    std::basic_string<atom_type> line;
+    std::size_t lineno;
+    V error;
 
-template <typename T, ErrorLike ...Es>
-std::string err_msg(const std::expected<T, std::variant<Es...>> &r) {
-    return err_msg(r.error());
-}
+    std::basic_string<atom_type> message() const {
+        const auto err = std::visit([](const auto &e) {
+            return e.template err<Fs...>();
+        }, error);
 
-template <ErrorLike E>
-std::string err_msg(const E &e) {
-    return e.err();
-}
+        const auto name = std::visit([]<typename T>(const T &)
+                -> std::basic_string_view<atom_type> {
+            return T::Name;
+        }, error);
 
-template <typename T, ErrorLike E>
-std::string err_msg(const std::expected<T, E> &r) {
-    return err_msg(r.error());
-}
-
-// TODO: Streamline error types
-// I like the implementation of CsvStreamError--a struct with general
-// information, and a std::variant with the details of the specific error
-// message. I think FileError (defined in CsvReader) deserves the same
-// treatment.
-
-// technically a misnomer--this could also occur if, say, we don't have permissions
-struct FileNotFound {
-    std::string filename;
-
-    std::string err() const {
-        return std::format("Could not open file: '{}'", filename);
+        return std::format(
+                "CSV Error in {}: {} at {}:{}.\n  {}: {}\n{}",
+                Ctx.view(), name, filename, lineno, lineno, line, err
+        );
     }
 };
 
-template <FieldLike ...Fs>
-struct MismatchedHeaders {
-    std::vector<std::string> found;
+template <typename CharT>
+struct FileNotFound {
+    static constexpr std::basic_string<CharT> Name = "File not found";
 
-    std::string err() const {
-        auto format_span = [](const auto &s) {
+    template <is_field<CharT> ...Fs>
+    std::basic_string<CharT> err() const { return "Could not open file."; }
+};
+
+template <typename CharT>
+struct MismatchedHeader {
+    static constexpr auto Name = "Mismatched header entries";
+
+    std::vector<std::basic_string_view<CharT>> entries;
+
+    template <is_field<CharT> ...Fs>
+    std::basic_string<CharT> err() const {
+        static constexpr auto format_span = [](const auto &s) {
             std::stringstream result;
 
             result << "[";
@@ -70,56 +65,47 @@ struct MismatchedHeaders {
             return result.str();
         };
 
-        static constexpr auto annotations = Annotations<Fs...>;
-
         return std::format(
                 "  Mismatch in header schema: expected {}, got {}",
-                format_span(annotations), format_span(found)
+                format_span(FieldAnnotations<CharT, Fs...>),
+                format_span(entries)
         );
     }
 };
 
-template <size_t Expected>
+template <typename CharT>
 struct LengthMismatch {
-    size_t found;
-    std::string err() const {
-        return std::format("  Expected {} fields, got {}", Expected, found);
+    static constexpr auto Name = "Mismatched header length";
+
+    size_t length;
+
+    template <is_field<CharT> ...Fs>
+    std::basic_string<CharT> err() const {
+        return std::format("Expected {} fields, got {}", sizeof...(Fs), length);
     }
 };
 
-template <FieldLike ...Fs>
-struct ConversionError {
-    std::vector<std::pair<size_t, std::string>> failures;
-    std::string err() const {
-        static constexpr auto annotations = Annotations<Fs...>;
+template <typename CharT>
+struct CouldNotConvert {
+    static constexpr auto Name = "Conversion Error";
 
-        std::stringstream ss;
+    std::vector<std::pair<size_t, std::basic_string_view<CharT>>> failures;
+
+    template <is_field<CharT> ...Fs>
+    std::basic_string<CharT> err() const {
+
+        std::basic_stringstream<CharT> ss;
 
         for (size_t i = 0; i < failures.size(); i++) {
             const auto &[idx, found] = failures[i];
 
-            ss << std::format("  Could not convert field '{}': got '{}'", annotations[idx], found);
+            ss << std::format("Could not convert field '{}': got '{}'",
+                    FieldAnnotations<Fs...>[idx], found);
             if (i < failures.size() - 1) {
                 ss << "\n";
             }
         }
 
         return ss.str();
-    }
-};
-
-
-template <FieldLike ...Fs>
-struct CsvStreamError {
-    std::string filename;
-    std::string line;
-    std::size_t lineno;
-    std::variant<LengthMismatch<sizeof...(Fs)>, ConversionError<Fs...>> error;
-
-    std::string err() const {
-        return std::format(
-            "CsvStreamError in '{}' (line {}) while parsing '{}':\n{}",
-            filename, lineno, line, err_msg(error)
-        );
     }
 };

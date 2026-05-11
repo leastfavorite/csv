@@ -1,5 +1,11 @@
 #include "NamedTuple.hh"
 #include <iostream>
+#include "CsvErrors.hh"
+
+template<class CharT, class ...Fs>
+using FromFileError = CsvError<CharT, "from_file", std::variant<
+    FileNotFound<CharT>, LengthMismatch<CharT>, MismatchedHeader<CharT>>,
+Fs...>;
 
 int main() {
     auto n = NamedTuple<
@@ -7,6 +13,12 @@ int main() {
         Field<"symbol", std::string>,
         Field<"test", double>
     >();
+
+    auto error = FromFileError<char,
+        Field<"symbol", std::string>,
+        Field<"test", double>
+    >();
+    std::cout << error.message() << std::endl;
 
     std::cout << n.get<"symbol">() << std::endl;
 }

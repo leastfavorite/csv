@@ -24,11 +24,5 @@ struct FixedString {
     CharT value[N];
 };
 
-template <auto S>
-concept is_fixed_string = requires {
-    { []<typename CharT, size_t N>(FixedString<CharT, N>){}(S) };
-};
-
-template <auto S, typename CharT>
-concept is_typed_fixed_string =
-    is_fixed_string<S> && std::same_as<typename decltype(S)::atom_type, CharT>;
+template <FixedString S, typename CharT>
+concept is_typed_fixed_string = std::same_as<typename decltype(S)::atom_type, CharT>;
