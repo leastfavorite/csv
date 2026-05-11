@@ -1,39 +1,34 @@
-// adapted from
-// https://ctrpeach.io/posts/cpp20-string-literal-template-parameters/
-//
-// additional reading:
-// https://github.com/mpusz/mp-units/blob/4161608a92e6d997d49b78ccd795550191fc80e3/src/core/include/mp-units/ext/fixed_string.h
-
 #pragma once
 
 #include <algorithm>
 #include <cstddef>
+#include <string_view>
 
-// TODO: FixedString has the ability to use different char atoms,
-// but all specialization in this library assumes convertible_to<string_view>,
-// which locks us into chars.
-//
-// To get real specialization, it'd be worthwhile to follow the basic_[] pattern
-// used by built-in string types.
-//
-// Also perhaps worthwhile when doing that: user-defined literal syntax,
-// seen in section 5.6 of the class-type NTTP proposal:
-//
-// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0732r2.pdf
+// NOTE: some very cool work is being done to make this type irrelevant.
+// see P3094.
+template <typename CharT, size_t N>
+struct FixedString {
+    using atom_type = CharT;
 
-// A compile-time string.
-template<typename CharT, size_t Extent>
-class FixedString {
-public:
-    using value_type = CharT;
+    static constexpr size_t Extent = N;
+    static constexpr size_t Length = N - 1;
 
-    static constexpr auto extent = Extent;
-    static constexpr auto size = Extent - 1;
+    constexpr FixedString(const CharT (&str)[N]) {
+        std::copy_n(str, N, value);
+    };
 
-    constexpr FixedString(const CharT (&str)[Extent]) {
-        std::copy_n(str, Extent, value);
+    constexpr std::basic_string_view<CharT> view() const {
+        return std::basic_string_view<CharT>(value, N);
     }
 
-    // must be public to be NTTP
-    CharT value[Extent];
+    CharT value[N];
 };
+
+template <auto S>
+concept is_fixed_string = requires {
+    { []<typename CharT, size_t N>(FixedString<CharT, N>){}(S) };
+};
+
+template <auto S, typename CharT>
+concept is_typed_fixed_string =
+    is_fixed_string<S> && std::same_as<typename decltype(S)::atom_type, CharT>;
