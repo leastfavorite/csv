@@ -1,6 +1,7 @@
 # csv
-A C++23 comma-separated value parser. Note that this is *extremely* early in
-development. Note also that I didn't know how to do any of this on Friday.
+A C++23 comma-separated value parser. Very early in development.
+
+**UPDATE** (May 11, 2026) - Refactored to allow arbitrary string types and streamline error types.
 
 ## Usage
 
@@ -77,3 +78,16 @@ CSV Error in operator*: Mismatched header length at test.csv:8.
   8: VeryLong,ven2,1.3,apple
 Expected 3 fields, got 4
 ```
+
+## Todo
+### Robust test cases
+This is the big one. Gtest is likely the canonical choice here. If we're pulling in dependencies, it might be useful to use [boost::core::type_name<T>()](https://www.boost.org/doc/libs/latest/libs/core/doc/html/core/type_name.html) to get string readouts for the `CouldNotConvert` error type.
+
+### Better split support
+The premiere activity of a `.csv` reader *is* to split on commas. We do this in the most basic way possible, with a `std::views::split(',')`; it'd be good to account for quoted strings and escaped commas.
+
+### Options
+It's very useful to provide a way to ignore unrecognized header fields rather than erroring out. With this new refactor, we're actually already pretty close to providing this--we just have to skip the `UnknownHeader` error.
+
+### Better conversion handling
+Currently, we handle type conversion with `operator>>`, which is a bit clunky, since it requires copying the entry to a `basic_istringstream`. `std::from_chars` is just staring at me! Using it in a partially-specialized function to perform a non-copying conversion would be much better, and would offer much more flexibility (think: optional types, user-defined specializations, etc.)
